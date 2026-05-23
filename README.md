@@ -48,6 +48,8 @@ On your servers create a cronjob like
 
 */15 * * * * /usr/bin/journalctl --since "16 minutes ago" > /home/USERNAME/www/A_DOMAIN/docs/A_DIRECTORY/mySysLog.log
 
+<b>Attn: That homepath must be a browsable path</b>
+
 
 <b>Install required Perl modules</b>
 
