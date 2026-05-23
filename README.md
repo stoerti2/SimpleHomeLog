@@ -34,7 +34,6 @@ Filtering Capabilities
 - Full-text search in messages
 - Adjustable result limit
 
-- 
 Prerequisites
 
 - PHP 7.4+ with PDO PostgreSQL extension
