@@ -6,7 +6,7 @@
  * @author      Klaus Baumdick
  * @copyright   2026 Klaus Baumdick
  * @license     MIT
- * @version     1.0.0
+ * @version     1.0.1
  * @date        2026-05-23
  *
  * @description Web interface for SIEM log management
@@ -163,7 +163,7 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
             <!-- Sidebar -->
             <div class="col-md-2 p-0 sidebar">
                 <div class="p-3">
-                    <h4 class="text-white mb-3" style="font-size: 1.1rem;">SIEM Dashboard</h4>
+                    <h4 class="text-white mb-3" style="font-size: 1.1rem;">SimpleHomeLog SIEM</h4>
                     <nav class="nav flex-column">
                         <a class="nav-link <?= $tab == 'dashboard' ? 'active' : '' ?>" href="?tab=dashboard">
                             <i class="fas fa-tachometer-alt"></i> Dashboard
@@ -182,6 +182,9 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
                         </a>
                         <a class="nav-link <?= $tab == 'servers' ? 'active' : '' ?>" href="?tab=servers">
                             <i class="fas fa-server"></i> Servers
+                        </a>
+                        <a class="nav-link" href="attack_graph.php">
+                            <i class="fas fa-project-diagram"></i> Attack Graph
                         </a>
                     </nav>
                 </div>
