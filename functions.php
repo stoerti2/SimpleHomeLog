@@ -6,7 +6,7 @@
  * @author      Klaus Baumdick
  * @copyright   2026 Klaus Baumdick
  * @license     MIT
- * @version     1.0.1
+ * @version     1.0.2
  * @date        2026-05-23
  */
 
@@ -311,5 +311,137 @@ function deleteFilteredEvents($pdo, $filters) {
         error_log("Delete error: " . $e->getMessage());
         return false;
     }
+}
+/**
+ * Holt Daten für Attack Graph Visualization
+ */
+function getAttackGraphData($pdo, $server_filter = '', $days = 7, $min_attacks = 1) {
+    // Hole alle Angreifer mit ihren Servern
+    $sql = "
+        SELECT
+            source_ip,
+            server_name,
+            COUNT(*) as attack_count,
+            MAX(timestamp) as last_attack,
+            MAX(CASE
+                WHEN severity = 'CRITICAL' THEN 'CRITICAL'
+                WHEN severity = 'HIGH' THEN 'HIGH'
+                WHEN severity = 'MEDIUM' THEN 'MEDIUM'
+                ELSE 'LOW'
+            END) as max_severity,
+            MIN(timestamp) as first_attack
+        FROM security_events
+        WHERE source_ip IS NOT NULL
+            AND source_ip != ''
+            AND timestamp >= CURRENT_DATE - (:days || ' days')::INTERVAL
+    ";
+
+    $params = ['days' => $days];
+
+    if ($server_filter) {
+        $sql .= " AND server_name = :server";
+        $params['server'] = $server_filter;
+    }
+
+    $sql .= " GROUP BY source_ip, server_name
+              HAVING COUNT(*) >= :min_attacks
+              ORDER BY attack_count DESC
+              LIMIT 100";
+
+    $params['min_attacks'] = $min_attacks;
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value);
+    }
+    $stmt->execute();
+    $connections = $stmt->fetchAll();
+
+    // Baue Nodes für Angreifer
+    $attackers = [];
+    $attacker_ids = [];
+    $server_ids = [];
+
+    foreach ($connections as $conn) {
+        $attacker_id = 'attacker_' . md5($conn['source_ip']);
+        $server_id = 'server_' . md5($conn['server_name']);
+
+        if (!isset($attacker_ids[$conn['source_ip']])) {
+            $attackers[] = [
+                'id' => $attacker_id,
+                'ip' => $conn['source_ip'],
+                'count' => 0,
+                'last_seen' => $conn['last_attack'],
+                'server' => $conn['server_name'],
+                'max_severity' => $conn['max_severity']
+            ];
+            $attacker_ids[$conn['source_ip']] = $attacker_id;
+        }
+
+        // Sammle Attack Count pro Attacker
+        foreach ($attackers as &$att) {
+            if ($att['ip'] == $conn['source_ip']) {
+                $att['count'] += $conn['attack_count'];
+                break;
+            }
+        }
+    }
+
+    // Baue Nodes für Server
+    $sql_servers = "
+        SELECT
+            server_name,
+            COUNT(*) as event_count,
+            COUNT(DISTINCT source_ip) as attacker_count
+        FROM security_events
+        WHERE timestamp >= CURRENT_DATE - (:days || ' days')::INTERVAL
+    ";
+
+    $params = ['days' => $days];
+    if ($server_filter) {
+        $sql_servers .= " AND server_name = :server";
+        $params['server'] = $server_filter;
+    }
+
+    $sql_servers .= " GROUP BY server_name LIMIT 50";
+
+    $stmt = $pdo->prepare($sql_servers);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value);
+    }
+    $stmt->execute();
+    $servers_data = $stmt->fetchAll();
+
+    $servers = [];
+    foreach ($servers_data as $server) {
+        $server_id = 'server_' . md5($server['server_name']);
+        $servers[] = [
+            'id' => $server_id,
+            'name' => $server['server_name'],
+            'event_count' => $server['event_count'],
+            'attacker_count' => $server['attacker_count']
+        ];
+        $server_ids[$server['server_name']] = $server_id;
+    }
+
+    // Baue Connections
+    $graph_connections = [];
+    foreach ($connections as $conn) {
+        $graph_connections[] = [
+            'attacker_id' => 'attacker_' . md5($conn['source_ip']),
+            'attacker_ip' => $conn['source_ip'],
+            'server_id' => 'server_' . md5($conn['server_name']),
+            'server_name' => $conn['server_name'],
+            'attack_count' => $conn['attack_count'],
+            'last_attack' => $conn['last_attack'],
+            'max_severity' => $conn['max_severity']
+        ];
+    }
+
+    return [
+        'attackers' => $attackers,
+        'servers' => $servers,
+        'connections' => $graph_connections
+    ];
 }
 ?>
