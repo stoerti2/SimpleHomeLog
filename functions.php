@@ -1,45 +1,13 @@
 <?php
 /**
- * SimpleHomeLog SIEM - Security Information & Event Management System
+ * SimpleHomeLog SIEM - Functions Library
  * ======================================================
  *
  * @author      Klaus Baumdick
  * @copyright   2026 Klaus Baumdick
  * @license     MIT
- * @version     1.0.0
+ * @version     1.0.1
  * @date        2026-05-23
- *
- * @description Web interface for SIEM log management
- *              Features: Dashboard, Event Viewer, Event Groups,
- *              Attacker Analysis, Statistics, Server Management
- *
- * @requires    PHP 7.4+
- * @requires    PostgreSQL 12+
- * @requires    PDO PostgreSQL extension
- *
- * @filesource
- *
- * MIT License
- *
- * Copyright (c) 2026 Klaus Baumdick
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 require_once 'db_config.php';
@@ -77,7 +45,7 @@ function getSeverityCounts($pdo) {
 function getTopAttackers($pdo, $limit = 10, $server_filter = '') {
     $sql = "SELECT source_ip, server_name, COUNT(*) as count, MAX(timestamp) as last_seen
             FROM security_events
-            WHERE source_ip IS NOT NULL AND severity IN ('HIGH', 'CRITICAL')";
+            WHERE source_ip IS NOT NULL AND source_ip != '' AND severity IN ('HIGH', 'CRITICAL')";
 
     if ($server_filter) {
         $sql .= " AND server_name = :server";
@@ -202,20 +170,30 @@ function getServerStats($pdo) {
 }
 
 function getDailyEvents($pdo, $days = 30) {
+    // PostgreSQL kompatible Version
     $sql = "SELECT DATE(timestamp) as date, COUNT(*) as count
             FROM security_events
-            WHERE timestamp >= CURRENT_DATE - INTERVAL ':days days'
+            WHERE timestamp >= CURRENT_DATE - ($days || ' days')::INTERVAL
             GROUP BY DATE(timestamp)
-            ORDER BY date DESC";
+            ORDER BY date ASC";
+
     $stmt = $pdo->prepare($sql);
-    $stmt->execute(['days' => $days]);
-    return $stmt->fetchAll();
+    $stmt->execute();
+    $results = $stmt->fetchAll();
+
+    // Wenn keine Daten vorhanden sind, leeres Array zurückgeben
+    if (empty($results)) {
+        return [];
+    }
+
+    return $results;
 }
 
 function getServerEventCounts($pdo) {
     $sql = "SELECT server_name, COUNT(*) as count
             FROM security_events
-            GROUP BY server_name";
+            GROUP BY server_name
+            ORDER BY count DESC";
     $stmt = $pdo->query($sql);
     return $stmt->fetchAll();
 }
