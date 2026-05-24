@@ -1,13 +1,15 @@
 #!/bin/bash
 # =============================================================================
-# SimpleHomeLog SIEM - Filesystem Monitor
+# SimpleHomeLog SIEM - Filesystem Monitor (ANGEPASST für Perl Parser)
 # =============================================================================
 #
 # Author:       Klaus Baumdick
 # Date:         2026-05-23
-# Version:      1.0.0
+# Version:      1.1.0
 #
-# Description:  This script checks the local filesystems and sends the info to the local syslog
+# Description:  This script checks the local filesystems and sends them to syslog
+#               ANPASSUNG: Tag enthält jetzt PID im Format fs_monitor[PID]
+#               damit das Perl-Script holeSyslogs.pl die Logs korrekt parsen kann
 #
 # Usage: ./fs_check.sh
 # Check: tail -n 20 /var/log/syslog | grep fs_monitor
@@ -45,13 +47,20 @@ WARNING_CRITICAL=95
 IGNORE_FS="tmpfs|devtmpfs|squashfs|overlay|fuse|udev|proc|sysfs|cgroup"
 TAG="fs_monitor"
 
+# =============================================================================
+# NEU: log_to_syslog mit PID im Tag (Format: fs_monitor[PID])
+# Dadurch kann das Perl-Script die Logs korrekt parsen
+# =============================================================================
 log_to_syslog() {
+    # Aktuelle Prozess-ID für das Tag verwenden
+    local pid=$$
+
     case "$1" in
-        "CRITICAL") logger -p user.crit -t "$TAG" "SimpleHomeLog: $1: $2" ;;
-        "HIGH")     logger -p user.err -t "$TAG" "SimpleHomeLog: $1: $2" ;;
-        "MEDIUM")   logger -p user.warning -t "$TAG" "SimpleHomeLog: $1: $2" ;;
-        "LOW")      logger -p user.notice -t "$TAG" "SimpleHomeLog: $1: $2" ;;
-        *)          logger -p user.info -t "$TAG" "SimpleHomeLog: $1: $2" ;;
+        "CRITICAL") logger -p user.crit -t "${TAG}[${pid}]" "SimpleHomeLog: $1: $2" ;;
+        "HIGH")     logger -p user.err -t "${TAG}[${pid}]" "SimpleHomeLog: $1: $2" ;;
+        "MEDIUM")   logger -p user.warning -t "${TAG}[${pid}]" "SimpleHomeLog: $1: $2" ;;
+        "LOW")      logger -p user.notice -t "${TAG}[${pid}]" "SimpleHomeLog: $1: $2" ;;
+        *)          logger -p user.info -t "${TAG}[${pid}]" "SimpleHomeLog: $1: $2" ;;
     esac
 }
 
@@ -62,6 +71,10 @@ get_severity() {
     elif [ $1 -ge 75 ]; then echo "LOW"
     else echo "INFO"; fi
 }
+
+# =============================================================================
+# Hauptprogramm
+# =============================================================================
 
 log_to_syslog "INFO" "Filesystem check started"
 
@@ -75,8 +88,10 @@ df -hP 2>/dev/null | grep -vE "$IGNORE_FS" | tail -n +2 | while read line; do
     if [[ "$use_percent" =~ ^[0-9]+$ ]]; then
         severity=$(get_severity $use_percent)
         log_to_syslog "$severity" "$mountpoint - ${use_percent}% ($used of $size), free: $available"
+
+        # Zusätzliche CRITICAL Nachricht mit emergency Level
         if [ "$severity" = "CRITICAL" ]; then
-            logger -p user.emerg -t "$TAG" "SimpleHomeLog: CRITICAL: $mountpoint is ${use_percent}% full!"
+            logger -p user.emerg -t "${TAG}[$$]" "SimpleHomeLog: CRITICAL: $mountpoint is ${use_percent}% full!"
         fi
     fi
 done
