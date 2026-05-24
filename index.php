@@ -6,40 +6,17 @@
  * @author      Klaus Baumdick
  * @copyright   2026 Klaus Baumdick
  * @license     MIT
- * @version     1.0.1
+ * @version     1.0.3
  * @date        2026-05-23
  *
  * @description Web interface for SIEM log management
  *              Features: Dashboard, Event Viewer, Event Groups,
  *              Attacker Analysis, Statistics, Server Management
+ *              NEW: Copy firewall rules to clipboard
  *
  * @requires    PHP 7.4+
  * @requires    PostgreSQL 12+
  * @requires    PDO PostgreSQL extension
- *
- * @filesource
- *
- * MIT License
- *
- * Copyright (c) 2026 Klaus Baumdick
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 require_once 'db_config.php';
@@ -155,6 +132,24 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
         .process-column { min-width: 100px; }
         .time-column { min-width: 65px; }
         .user-column { min-width: 80px; }
+        /* Toast Notification */
+        .toast-notify {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #28a745;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            z-index: 9999;
+            animation: fadeInOut 2s ease-in-out;
+        }
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(20px); }
+            10% { opacity: 1; transform: translateY(0); }
+            90% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(20px); }
+        }
     </style>
 </head>
 <body>
@@ -582,7 +577,7 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
                                                         <a href="?tab=events&source_ip=<?= urlencode($attacker['source_ip']) ?>" class="btn btn-sm btn-info">
                                                             <i class="fas fa-search"></i> View Events
                                                         </a>
-                                                    </td>
+                                                     </td>
                                                 </tr>
                                                 <?php endforeach; ?>
                                                 <?php if (count($attackers_data) == 0): ?>
@@ -711,11 +706,25 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
                 <div class="modal-body" id="eventDetails" style="font-size:0.8rem;">
                     Loading...
                 </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-warning" id="copyFirewallBtn" onclick="copyFirewallRule()">
+                        <i class="fas fa-copy"></i> Copy Firewall Rule
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
+    <!-- Toast Notification -->
+    <div id="toast" style="display:none;" class="toast-notify">
+        <i class="fas fa-check-circle"></i> Firewall rule copied to clipboard!
+    </div>
+
     <script>
+        // Variable to store current firewall rule
+        let currentFirewallRule = '';
+
         $(document).ready(function() {
             if ($('#eventsTable').length) {
                 $('#eventsTable').DataTable({
@@ -806,7 +815,21 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
                     success: function(event) {
                         if (event.error) {
                             $('#eventDetails').html('<div class="alert alert-danger">' + event.error + '</div>');
+                            currentFirewallRule = '';
                         } else {
+                            // Generate firewall rule
+                            let firewallRule = '';
+                            if (event.source_ip && event.source_ip != '-' && event.source_ip != '') {
+                                // iptables rule
+                                firewallRule = `$IPT -A INPUT -s ${event.source_ip} -j DROP`;
+
+                                // Alternative: ufw rule
+                                // firewallRule = `ufw deny from ${event.source_ip} to any`;
+                            } else {
+                                firewallRule = 'No source IP available for firewall rule';
+                            }
+                            currentFirewallRule = firewallRule;
+
                             $('#eventDetails').html(`
                                 <table class="table table-sm">
                                     <tr><th style="width:100px;">ID:</th><td>${event.id || '-'}</td></tr>
@@ -821,12 +844,19 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
                                     <tr><th>Event Group ID:</th><td>${event.event_group_id || '-'}</td></tr>
                                     <tr><th>Raw Log:</th><td><pre style="max-height:150px; font-size:0.7rem; white-space:pre-wrap;">${escapeHtml(event.raw_log || 'N/A')}</pre></td></tr>
                                 </table>
+                                ${event.source_ip && event.source_ip != '-' && event.source_ip != '' ? `
+                                <div class="alert alert-info mt-2">
+                                    <strong><i class="fas fa-firewall"></i> Firewall Rule:</strong><br>
+                                    <code style="background:#1a1a2e; padding:8px; display:block; border-radius:5px; margin-top:5px;">${firewallRule}</code>
+                                </div>
+                                ` : ''}
                             `);
                         }
                         $('#eventModal').modal('show');
                     },
                     error: function(xhr, status, error) {
                         $('#eventDetails').html('<div class="alert alert-danger">Error loading event details: ' + error + '</div>');
+                        currentFirewallRule = '';
                         $('#eventModal').modal('show');
                     }
                 });
@@ -956,6 +986,48 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
                 });
             });
         });
+
+        // Function to copy firewall rule to clipboard
+        function copyFirewallRule() {
+            if (currentFirewallRule && currentFirewallRule !== 'No source IP available for firewall rule') {
+                // Modern clipboard API
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(currentFirewallRule).then(function() {
+                        showToast();
+                    }).catch(function(err) {
+                        console.error('Could not copy text: ', err);
+                        fallbackCopy(currentFirewallRule);
+                    });
+                } else {
+                    // Fallback for older browsers
+                    fallbackCopy(currentFirewallRule);
+                }
+            } else if (currentFirewallRule === 'No source IP available for firewall rule') {
+                alert('No source IP available to create a firewall rule!');
+            } else {
+                alert('No firewall rule available!');
+            }
+        }
+
+        // Fallback copy method
+        function fallbackCopy(text) {
+            var textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            showToast();
+        }
+
+        // Show toast notification
+        function showToast() {
+            var toast = document.getElementById('toast');
+            toast.style.display = 'block';
+            setTimeout(function() {
+                toast.style.display = 'none';
+            }, 2000);
+        }
 
         function escapeHtml(text) {
             if (!text) return '';
