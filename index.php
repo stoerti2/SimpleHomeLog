@@ -6,7 +6,7 @@
  * @author      Klaus Baumdick
  * @copyright   2026 Klaus Baumdick
  * @license     MIT
- * @version     1.0.3
+ * @version     1.0.4
  * @date        2026-05-23
  *
  * @description Web interface for SIEM log management
@@ -150,6 +150,14 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
             90% { opacity: 1; transform: translateY(0); }
             100% { opacity: 0; transform: translateY(20px); }
         }
+        /* Klickbare Zeilen im Dashboard */
+        .clickable-row {
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .clickable-row:hover {
+            background-color: #f0f0f0 !important;
+        }
     </style>
 </head>
 <body>
@@ -252,10 +260,10 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
                         </div>
                     </div>
 
-                    <!-- Recent Events -->
+                    <!-- Recent Events - JETZT ANKLICKBAR -->
                     <div class="card">
                         <div class="card-header">
-                            <h5>Recent Critical Events</h5>
+                            <h5>Recent Critical Events <small class="text-muted">(klickbar für Details)</small></h5>
                         </div>
                         <div class="card-body p-0">
                             <div class="table-responsive">
@@ -263,13 +271,13 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
                                     <thead>
                                         <tr><th style="font-size:0.7rem;">Time</th><th style="font-size:0.7rem;">Server</th><th style="font-size:0.7rem;">Source IP</th><th style="font-size:0.7rem;">Message</th><th style="font-size:0.7rem;">Severity</th></tr>
                                     </thead>
-                                    <tbody>
+                                    <tbody id="recentCriticalEventsBody">
                                         <?php foreach (getRecentEvents($pdo, 15) as $event): ?>
-                                        <tr style="font-size:0.75rem;">
+                                        <tr class="clickable-row" data-event-id="<?= $event['id'] ?>" style="font-size:0.75rem;">
                                             <td><small><?= date('m-d H:i:s', strtotime($event['timestamp'])) ?></small></td>
                                             <td><small><?= htmlspecialchars(substr($event['server_name'], 0, 20)) ?></small></td>
                                             <td><small><code><?= htmlspecialchars($event['source_ip'] ?? '-') ?></code></small></td>
-                                            <td class="log-message"><small><?= htmlspecialchars(substr($event['message'], 0, 60)) ?>...</small></td>
+                                            <td class="log-message"><small><?= htmlspecialchars(substr($event['message'], 0, 80)) ?>...</small></td>
                                             <td><small><span class="severity-<?= $event['severity'] ?>"><?= $event['severity'] ?></span></small></td>
                                         </tr>
                                         <?php endforeach; ?>
@@ -577,7 +585,7 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
                                                         <a href="?tab=events&source_ip=<?= urlencode($attacker['source_ip']) ?>" class="btn btn-sm btn-info">
                                                             <i class="fas fa-search"></i> View Events
                                                         </a>
-                                                     </td>
+                                                      </td>
                                                 </tr>
                                                 <?php endforeach; ?>
                                                 <?php if (count($attackers_data) == 0): ?>
@@ -725,7 +733,85 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
         // Variable to store current firewall rule
         let currentFirewallRule = '';
 
+        // Globale Funktion zum Anzeigen von Event-Details
+        function displayEventDetails(event) {
+            // Generate firewall rule
+            let firewallRule = '';
+            if (event.source_ip && event.source_ip != '-' && event.source_ip != '') {
+                firewallRule = `iptables -A INPUT -s ${event.source_ip} -j DROP`;
+            } else {
+                firewallRule = 'No source IP available for firewall rule';
+            }
+            currentFirewallRule = firewallRule;
+
+            $('#eventDetails').html(`
+                <table class="table table-sm">
+                    <tr><th style="width:100px;">ID:</th><td>${event.id || '-'}</td></tr>
+                    <tr><th>Server:</th><td>${escapeHtml(event.server_name) || '-'}</td></tr>
+                    <tr><th>Hostname:</th><td>${escapeHtml(event.hostname) || '-'}</td></tr>
+                    <tr><th>Timestamp:</th><td>${event.timestamp || '-'}</td></tr>
+                    <tr><th>Process:</th><td>${escapeHtml(event.process_name) || '-'} [${event.pid || '?'}]</td></tr>
+                    <tr><th>Message:</th><td><pre style="font-size:0.75rem; white-space:pre-wrap;">${escapeHtml(event.message || '-')}</pre></td></tr>
+                    <tr><th>Source IP:</th><td>${event.source_ip || '-'}</td></tr>
+                    <tr><th>Username:</th><td>${event.username || '-'}</td></tr>
+                    <tr><th>Severity:</th><td><span class="severity-${event.severity}">${event.severity || '-'}</span></td></tr>
+                    <tr><th>Event Group ID:</th><td>${event.event_group_id || '-'}</td></tr>
+                    <tr><th>Raw Log:</th><td><pre style="max-height:150px; font-size:0.7rem; white-space:pre-wrap;">${escapeHtml(event.raw_log || 'N/A')}</pre></td></tr>
+                </table>
+                ${event.source_ip && event.source_ip != '-' && event.source_ip != '' ? `
+                <div class="alert alert-info mt-2">
+                    <strong><i class="fas fa-firewall"></i> Firewall Rule:</strong><br>
+                    <code style="background:#1a1a2e; padding:8px; display:block; border-radius:5px; margin-top:5px; color:#0f0;">${firewallRule}</code>
+                </div>
+                ` : ''}
+            `);
+            $('#eventModal').modal('show');
+        }
+
+        // Escape HTML Funktion
+        function escapeHtml(text) {
+            if (!text) return '';
+            return String(text).replace(/[&<>]/g, function(m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
+        }
+
         $(document).ready(function() {
+            // ============================================================
+            // NEU: Dashboard - Recent Critical Events anklickbar machen
+            // ============================================================
+            $('.clickable-row').on('click', function() {
+                var eventId = $(this).data('event-id');
+                if (eventId) {
+                    // Event via AJAX laden
+                    $.ajax({
+                        url: 'ajax.php',
+                        method: 'GET',
+                        data: {
+                            action: 'get_event',
+                            event_id: eventId
+                        },
+                        dataType: 'json',
+                        success: function(event) {
+                            if (event && !event.error) {
+                                displayEventDetails(event);
+                            } else {
+                                $('#eventDetails').html('<div class="alert alert-danger">Event not found or error loading details.</div>');
+                                $('#eventModal').modal('show');
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            $('#eventDetails').html('<div class="alert alert-danger">Error loading event: ' + error + '</div>');
+                            $('#eventModal').modal('show');
+                        }
+                    });
+                }
+            });
+
+            // DataTables Initialisierung
             if ($('#eventsTable').length) {
                 $('#eventsTable').DataTable({
                     "pageLength": 50,
@@ -734,15 +820,15 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
                     "scrollX": true,
                     "autoWidth": false,
                     "columnDefs": [
-                        { "width": "60px", "targets": 0 },   // Time
-                        { "width": "150px", "targets": 1 },  // Server (breiter für IP)
-                        { "width": "100px", "targets": 2 },  // Host
-                        { "width": "90px", "targets": 3 },   // Process
-                        { "width": "250px", "targets": 4 },  // Message
-                        { "width": "130px", "targets": 5 },  // Source IP
-                        { "width": "80px", "targets": 6 },   // User
-                        { "width": "105px", "targets": 7 },  // Severity
-                        { "width": "40px", "targets": 8 }    // Actions
+                        { "width": "60px", "targets": 0 },
+                        { "width": "150px", "targets": 1 },
+                        { "width": "100px", "targets": 2 },
+                        { "width": "90px", "targets": 3 },
+                        { "width": "250px", "targets": 4 },
+                        { "width": "130px", "targets": 5 },
+                        { "width": "80px", "targets": 6 },
+                        { "width": "105px", "targets": 7 },
+                        { "width": "40px", "targets": 8 }
                     ]
                 });
             }
@@ -817,42 +903,8 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
                             $('#eventDetails').html('<div class="alert alert-danger">' + event.error + '</div>');
                             currentFirewallRule = '';
                         } else {
-                            // Generate firewall rule
-                            let firewallRule = '';
-                            if (event.source_ip && event.source_ip != '-' && event.source_ip != '') {
-                                // iptables rule
-                                firewallRule = `$IPT -A INPUT -s ${event.source_ip} -j DROP`;
-
-                                // Alternative: ufw rule
-                                // firewallRule = `ufw deny from ${event.source_ip} to any`;
-                            } else {
-                                firewallRule = 'No source IP available for firewall rule';
-                            }
-                            currentFirewallRule = firewallRule;
-
-                            $('#eventDetails').html(`
-                                <table class="table table-sm">
-                                    <tr><th style="width:100px;">ID:</th><td>${event.id || '-'}</td></tr>
-                                    <tr><th>Server:</th><td>${escapeHtml(event.server_name) || '-'}</td></tr>
-                                    <tr><th>Hostname:</th><td>${escapeHtml(event.hostname) || '-'}</td></tr>
-                                    <tr><th>Timestamp:</th><td>${event.timestamp || '-'}</td></tr>
-                                    <tr><th>Process:</th><td>${escapeHtml(event.process_name) || '-'}[${event.pid || '?'}]</td></tr>
-                                    <tr><th>Message:</th><td><pre style="font-size:0.75rem; white-space:pre-wrap;">${escapeHtml(event.message || '-')}</pre></td></tr>
-                                    <tr><th>Source IP:</th><td>${event.source_ip || '-'}</td></tr>
-                                    <tr><th>Username:</th><td>${event.username || '-'}</td></tr>
-                                    <tr><th>Severity:</th><td><span class="severity-${event.severity}">${event.severity || '-'}</span></td></tr>
-                                    <tr><th>Event Group ID:</th><td>${event.event_group_id || '-'}</td></tr>
-                                    <tr><th>Raw Log:</th><td><pre style="max-height:150px; font-size:0.7rem; white-space:pre-wrap;">${escapeHtml(event.raw_log || 'N/A')}</pre></td></tr>
-                                </table>
-                                ${event.source_ip && event.source_ip != '-' && event.source_ip != '' ? `
-                                <div class="alert alert-info mt-2">
-                                    <strong><i class="fas fa-firewall"></i> Firewall Rule:</strong><br>
-                                    <code style="background:#1a1a2e; padding:8px; display:block; border-radius:5px; margin-top:5px;">${firewallRule}</code>
-                                </div>
-                                ` : ''}
-                            `);
+                            displayEventDetails(event);
                         }
-                        $('#eventModal').modal('show');
                     },
                     error: function(xhr, status, error) {
                         $('#eventDetails').html('<div class="alert alert-danger">Error loading event details: ' + error + '</div>');
@@ -862,7 +914,7 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
                 });
             });
 
-            // Klick auf ganze Zeile
+            // Klick auf ganze Zeile in Events Tabelle
             $('.event-detail').off('click').on('click', function(e) {
                 if ($(e.target).hasClass('severity-select') || $(e.target).is('select')) {
                     return;
@@ -873,7 +925,7 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
                 }
             });
 
-            // Group view handler - Events der Gruppe anzeigen
+            // Group view handler
             $('.view-group').off('click').on('click', function() {
                 var groupId = $(this).data('id');
                 window.location.href = `?tab=events&group_id=${groupId}`;
@@ -990,7 +1042,6 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
         // Function to copy firewall rule to clipboard
         function copyFirewallRule() {
             if (currentFirewallRule && currentFirewallRule !== 'No source IP available for firewall rule') {
-                // Modern clipboard API
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     navigator.clipboard.writeText(currentFirewallRule).then(function() {
                         showToast();
@@ -999,7 +1050,6 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
                         fallbackCopy(currentFirewallRule);
                     });
                 } else {
-                    // Fallback for older browsers
                     fallbackCopy(currentFirewallRule);
                 }
             } else if (currentFirewallRule === 'No source IP available for firewall rule') {
@@ -1009,7 +1059,6 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
             }
         }
 
-        // Fallback copy method
         function fallbackCopy(text) {
             var textarea = document.createElement('textarea');
             textarea.value = text;
@@ -1020,23 +1069,12 @@ $groups_data = getEventGroups($pdo, 100, $groups_server_filter, $groups_process_
             showToast();
         }
 
-        // Show toast notification
         function showToast() {
             var toast = document.getElementById('toast');
             toast.style.display = 'block';
             setTimeout(function() {
                 toast.style.display = 'none';
             }, 2000);
-        }
-
-        function escapeHtml(text) {
-            if (!text) return '';
-            return String(text).replace(/[&<>]/g, function(m) {
-                if (m === '&') return '&amp;';
-                if (m === '<') return '&lt;';
-                if (m === '>') return '&gt;';
-                return m;
-            });
         }
 
         <?php if ($tab == 'dashboard'): ?>
